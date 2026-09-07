@@ -29,3 +29,6 @@ dist-ssr
 *.sw?
 
 certificates
+
+# Windows / WSL metadata
+*:Zone.Identifier
