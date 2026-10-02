@@ -6,7 +6,8 @@ import { ZoomControls } from "@/components/zoom-controls"
 import { PassengerCount } from "@/components/passenger-count"
 import { RouteInfo } from "@/components/route-info"
 import { getRealtimeLocations, getSavedRoute, getCurrentScheduleStatus, getDateCollections, getAllLocationsFromCollection } from "@/lib/firebase"
-import type { LocationData, DaySchedule } from "@/lib/types"
+import { subscribeOperationEvent,} from "@/lib/operation-events"
+import type { LocationData, DaySchedule, OperationEvent,} from "@/lib/types"
 import type { Map as LeafletMap } from "leaflet"
 
 export default function Home() {
@@ -15,6 +16,7 @@ export default function Home() {
   const [collectionName, setCollectionName] = useState<string>("")
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [plannedRoute, setPlannedRoute] = useState<[number, number][]>([])
+  const [activeEvent,setActiveEvent,] = useState<OperationEvent | null>(null,)
   const [currentSchedule, setCurrentSchedule] = useState<DaySchedule | null>(null)
   const [isOperating, setIsOperating] = useState<boolean>(false)
   const [nextOperation, setNextOperation] = useState<{
@@ -123,6 +125,28 @@ export default function Home() {
       unsubscribe()
     }
   }, [collectionName])
+
+  /**
+ * 遅延・停止・お知らせ情報を
+ * Firestoreからリアルタイム監視
+ */
+useEffect(() => {
+  const unsubscribe =
+    subscribeOperationEvent(
+      (event) => {
+        setActiveEvent(event)
+
+        console.log(
+          "[operation-event] 受信:",
+          event,
+        )
+      },
+    )
+
+  return () => {
+    unsubscribe()
+  }
+}, [])
 
   useEffect(() => {
     if ("geolocation" in navigator) {
@@ -317,6 +341,13 @@ export default function Home() {
     map.setView([latestLocation.latitude, latestLocation.longitude], 16)
   }, [map, locations])
 
+  /**
+ * グリスロの位置情報が存在するか
+ */
+const hasVehicleLocation =
+  isOperating &&
+  locations.length > 0
+
   return (
     <main className="w-full h-screen relative overflow-hidden">
       <div className="absolute inset-0" style={{ zIndex: 1 }}>
@@ -324,9 +355,150 @@ export default function Home() {
           locations={isOperating ? locations : []}
           onMapReady={setMap}
           userLocation={userLocation}
-          plannedRoute={plannedRoute} // Simplified - route already controlled by useEffect
+          plannedRoute={plannedRoute}
+          activeEvent={activeEvent}
+           // Simplified - route already controlled by useEffect
         />
       </div>
+
+      {/* GPSが取得できない場合の運行情報バナー */}
+{activeEvent &&
+  !hasVehicleLocation && (
+    <div
+      style={{
+        position: "fixed",
+
+        top: 16,
+        left: "50%",
+
+        transform:
+          "translateX(-50%)",
+
+        zIndex: 10000,
+
+        width:
+          "min(520px, calc(100vw - 32px))",
+
+        boxSizing:
+          "border-box",
+
+        padding:
+          "14px 18px",
+
+        borderRadius: 12,
+
+        backgroundColor:
+          activeEvent.type ===
+          "stopped"
+            ? "#fef2f2"
+            : activeEvent.type ===
+                "delay"
+              ? "#fffbeb"
+              : "#eff6ff",
+
+        border:
+          activeEvent.type ===
+          "stopped"
+            ? "1px solid #fecaca"
+            : activeEvent.type ===
+                "delay"
+              ? "1px solid #fde68a"
+              : "1px solid #bfdbfe",
+
+        boxShadow:
+          "0 4px 16px rgba(0, 0, 0, 0.18)",
+
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      }}
+    >
+      {/* 種類 */}
+      <div
+        style={{
+          marginBottom: 5,
+
+          fontSize: 12,
+          fontWeight: 800,
+
+          color:
+            activeEvent.type ===
+            "stopped"
+              ? "#b91c1c"
+              : activeEvent.type ===
+                  "delay"
+                ? "#b45309"
+                : "#1d4ed8",
+        }}
+      >
+        {activeEvent.type ===
+        "stopped"
+          ? "一時停止中"
+          : activeEvent.type ===
+              "delay"
+            ? "遅延情報"
+            : "運行情報"}
+      </div>
+
+      {/* 本文 */}
+      <div
+        style={{
+          fontSize: 15,
+          fontWeight: 700,
+
+          lineHeight: 1.5,
+
+          color: "#111827",
+
+          whiteSpace:
+            "pre-wrap",
+        }}
+      >
+        {activeEvent.message}
+      </div>
+
+      {/* 時刻 */}
+      <div
+        style={{
+          marginTop: 6,
+
+          fontSize: 11,
+
+          color: "#6b7280",
+        }}
+      >
+        {new Date(
+          activeEvent.publishedAt,
+        ).toLocaleTimeString(
+          "ja-JP",
+          {
+            timeZone:
+              "Asia/Tokyo",
+
+            hour:
+              "2-digit",
+
+            minute:
+              "2-digit",
+          },
+        )}{" "}
+        更新
+      </div>
+
+      {/* GPSがないことを案内 */}
+      <div
+        style={{
+          marginTop: 5,
+
+          fontSize: 10,
+
+          color: "#9ca3af",
+        }}
+      >
+        車両位置情報を取得できないため、
+        画面上部に表示しています
+      </div>
+    </div>
+  )}
 
       {!isOperating && nextOperation && (
         <div

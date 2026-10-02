@@ -1,16 +1,29 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import type { LocationData } from "@/lib/types"
+import type { LocationData, OperationEvent, } from "@/lib/types"
 
 interface MapProps {
   locations: LocationData[]
-  plannedRoute?: [number, number][]
-  onMapReady?: (map: any) => void
-  userLocation?: { lat: number; lng: number } | null
+
+  plannedRoute?: [
+    number,
+    number,
+  ][]
+
+  onMapReady?: (
+    map: any,
+  ) => void
+
+  userLocation?: {
+    lat: number
+    lng: number
+  } | null
+
+  activeEvent?: OperationEvent | null
 }
 
-export default function Map({ locations, plannedRoute, onMapReady, userLocation }: MapProps) {
+export default function Map({ locations, plannedRoute, onMapReady, userLocation, activeEvent }: MapProps) {
   const mapRef = useRef<any | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const vehicleMarkerRef = useRef<any | null>(null)
@@ -354,6 +367,244 @@ export default function Map({ locations, plannedRoute, onMapReady, userLocation 
         .addTo(mapRef.current)
     }
   }, [locations])
+
+    /**
+   * 遅延・停止・お知らせ情報を
+   * グリスロの車両マーカー上に表示
+   */
+  useEffect(() => {
+    const vehicleMarker =
+      vehicleMarkerRef.current
+
+    /**
+     * グリスロの位置情報が無く、
+     * 車両マーカーがまだ存在しない場合は
+     * 吹き出しを表示できない
+     */
+    if (!vehicleMarker) {
+      return
+    }
+
+    /**
+     * 以前の吹き出しが残っていた場合は
+     * 一度削除する
+     */
+    vehicleMarker.unbindTooltip()
+
+    /**
+     * 表示中の運行情報が無ければ終了
+     */
+    if (
+      !activeEvent ||
+      activeEvent.status !== "active" ||
+      !activeEvent.message
+    ) {
+      return
+    }
+
+    /**
+     * 吹き出し全体
+     *
+     * innerHTMLを使用せず、
+     * textContentを使うことで
+     * 自由記述欄の文字列を安全に表示する
+     */
+    const container =
+      document.createElement("div")
+
+    container.style.minWidth =
+      "180px"
+
+    container.style.maxWidth =
+      "280px"
+
+    container.style.padding =
+      "6px 8px"
+
+    container.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+
+    /**
+     * 「遅延情報」などのラベル
+     */
+    const label =
+      document.createElement("div")
+
+    label.style.fontSize =
+      "12px"
+
+    label.style.fontWeight =
+      "800"
+
+    label.style.marginBottom =
+      "5px"
+
+    /**
+     * 種類によって色と文章を変更
+     */
+    if (
+      activeEvent.type ===
+      "stopped"
+    ) {
+      label.textContent =
+        "一時停止中"
+
+      label.style.color =
+        "#dc2626"
+    } else if (
+      activeEvent.type ===
+      "delay"
+    ) {
+      label.textContent =
+        "遅延情報"
+
+      label.style.color =
+        "#d97706"
+    } else {
+      label.textContent =
+        "運行情報"
+
+      label.style.color =
+        "#2563eb"
+    }
+
+    /**
+     * 運行情報本文
+     */
+    const message =
+      document.createElement("div")
+
+    message.style.fontSize =
+      "14px"
+
+    message.style.fontWeight =
+      "700"
+
+    message.style.lineHeight =
+      "1.45"
+
+    message.style.color =
+      "#111827"
+
+    message.style.whiteSpace =
+      "pre-wrap"
+
+    message.textContent =
+      activeEvent.message
+
+    /**
+     * 更新時刻
+     */
+    const time =
+      document.createElement("div")
+
+    time.style.fontSize =
+      "11px"
+
+    time.style.marginTop =
+      "6px"
+
+    time.style.color =
+      "#6b7280"
+
+    const publishedAt =
+      new Date(
+        activeEvent.publishedAt,
+      )
+
+    /**
+     * FirestoreにはUTCで保存しているが、
+     * 表示するときは日本時間に変換する
+     */
+    if (
+      !Number.isNaN(
+        publishedAt.getTime(),
+      )
+    ) {
+      const japanTime =
+        publishedAt.toLocaleTimeString(
+          "ja-JP",
+          {
+            timeZone:
+              "Asia/Tokyo",
+
+            hour:
+              "2-digit",
+
+            minute:
+              "2-digit",
+          },
+        )
+
+      time.textContent =
+        `${japanTime} 更新`
+    }
+
+    /**
+     * 吹き出しを組み立てる
+     */
+    container.appendChild(label)
+
+    container.appendChild(
+      message,
+    )
+
+    if (time.textContent) {
+      container.appendChild(
+        time,
+      )
+    }
+
+    /**
+     * Leaflet Tooltipとして
+     * グリスロのマーカーに取り付ける
+     */
+    vehicleMarker
+      .bindTooltip(
+        container,
+        {
+          /**
+           * 常に表示
+           */
+          permanent: true,
+
+          /**
+           * 車両アイコンの上側へ表示
+           */
+          direction: "top",
+
+          /**
+           * 車両アイコンから少し離す
+           */
+          offset: [0, -28],
+
+          opacity: 1,
+
+          /**
+           * 吹き出し自体は
+           * タップ操作の対象にしない
+           */
+          interactive: false,
+        },
+      )
+      .openTooltip()
+
+    /**
+     * activeEventが変更された場合は
+     * 古い吹き出しを削除
+     */
+    return () => {
+      vehicleMarker.unbindTooltip()
+    }
+  }, [
+    activeEvent,
+
+    /**
+     * 0件 → 1件以上になったときに
+     * 吹き出し処理を再実行する
+     */
+    locations.length > 0,
+  ])
 
   useEffect(() => {
     if (!mapRef.current || !userLocation || !leafletRef.current) {

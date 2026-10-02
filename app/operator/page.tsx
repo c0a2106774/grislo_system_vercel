@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { ChevronLeft, ChevronRight, Clock, Route, Save, MapPin } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, Route, Save, MapPin } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { saveMonthSchedule, getMonthSchedule, getDateCollections } from "@/lib/firebase"
 import type { DaySchedule, MonthSchedule } from "@/lib/types"
@@ -235,12 +235,81 @@ export default function OperatorHome() {
             boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1)",
           }}
         >
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, color: "#1f2937", marginBottom: 8 }}>スケジュール設定</h1>
-            <p style={{ color: "#6b7280", fontSize: 14 }}>
-              カレンダーから日付を選択して、運行スケジュールを設定してください
-            </p>
-          </div>
+          <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    flexWrap: "wrap",
+  }}
+>
+  {/* スケジュール設定タイトル */}
+  <div>
+    <h1
+      style={{
+        fontSize: 24,
+        fontWeight: 700,
+        color: "#1f2937",
+        marginBottom: 8,
+      }}
+    >
+      スケジュール設定
+    </h1>
+
+    <p
+      style={{
+        color: "#6b7280",
+        fontSize: 14,
+        margin: 0,
+      }}
+    >
+      カレンダーから日付を選択して、
+      運行スケジュールを設定してください
+    </p>
+  </div>
+
+  {/* 運行中管理画面へ移動 */}
+  <button
+    type="button"
+    onClick={() => {
+      router.push("/operator/live")
+    }}
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+
+      padding: "12px 16px",
+
+      borderRadius: 10,
+
+      border: "1px solid #f59e0b",
+
+      backgroundColor: "#fffbeb",
+
+      color: "#92400e",
+
+      fontSize: 14,
+      fontWeight: 700,
+
+      cursor: "pointer",
+
+      whiteSpace: "nowrap",
+
+      boxShadow:
+        "0 1px 3px rgba(0, 0, 0, 0.08)",
+    }}
+  >
+    <AlertTriangle
+      size={19}
+      strokeWidth={2.3}
+    />
+
+    運行中の遅延・停止情報
+  </button>
+</div>
         </div>
 
         {message && (
