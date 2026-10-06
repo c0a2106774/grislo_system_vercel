@@ -1,6 +1,7 @@
 
 "use client"
 
+import { getAuth } from "firebase/auth"
 import { useCallback, useEffect, useState } from "react"
 import { AlertTriangle, CheckCircle2, Send, X } from "lucide-react"
 import type { Map as LeafletMap } from "leaflet"
@@ -9,6 +10,7 @@ import { MapWrapper } from "@/components/map-wrapper"
 import { ZoomControls } from "@/components/zoom-controls"
 
 import {
+  app,
   getAllLocationsFromCollection,
   getCurrentScheduleStatus,
   getDateCollections,
@@ -60,6 +62,74 @@ function formatJapanTime(isoString: string): string {
     hour: "2-digit",
     minute: "2-digit",
   })
+}
+
+async function sendOperationEventToLine(
+  type: OperationEventType,
+  message: string,
+): Promise<boolean> {
+  try {
+    const auth = getAuth(app)
+    const user = auth.currentUser
+
+    if (!user) {
+      console.error(
+        "[operator-live] 管理者がログインしていません",
+      )
+
+      return false
+    }
+
+    /**
+     * 現在ログインしている管理者の
+     * Firebase ID Tokenを取得
+     */
+    const idToken =
+      await user.getIdToken()
+
+    const response =
+      await fetch(
+        "/api/line/operation",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Authorization:
+              `Bearer ${idToken}`,
+          },
+
+          body: JSON.stringify({
+            type,
+            message,
+          }),
+        },
+      )
+
+    if (!response.ok) {
+      const errorText =
+        await response.text()
+
+      console.error(
+        "[operator-live] LINE送信エラー:",
+        response.status,
+        errorText,
+      )
+
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error(
+      "[operator-live] LINE送信エラー:",
+      error,
+    )
+
+    return false
+  }
 }
 
 export default function OperatorLivePage() {
@@ -450,39 +520,75 @@ export default function OperatorLivePage() {
    * 運行情報の送信
    */
   async function handlePublish() {
-    if (!outgoingMessage || sending) return
+  if (!outgoingMessage || sending) return
 
-    setSending(true)
-    setFeedback("")
+  setSending(true)
+  setFeedback("")
 
-    const latestLocation =
-      locations.length > 0
-        ? locations[locations.length - 1]
-        : null
+  const latestLocation =
+    locations.length > 0
+      ? locations[locations.length - 1]
+      : null
 
-    try {
-      const success = await publishOperationEvent({
+  try {
+    /**
+     * ① Web地図 / Firestoreへ送信
+     */
+    const webSuccess =
+      await publishOperationEvent({
         type: eventType,
+
         message: outgoingMessage,
+
         source: customMessage.trim()
           ? "custom"
           : "preset",
-        vehicleLatitude: latestLocation?.latitude,
-        vehicleLongitude: latestLocation?.longitude,
+
+        vehicleLatitude:
+          latestLocation?.latitude,
+
+        vehicleLongitude:
+          latestLocation?.longitude,
       })
 
-      if (success) {
-        setFeedback("運行情報をWeb地図へ送信しました")
-        setSelectedTemplateId("")
-        setCustomMessage("")
-      } else {
-        setFeedback("送信に失敗しました")
-      }
-    } finally {
-      setSending(false)
-    }
-  }
+    if (!webSuccess) {
+      setFeedback(
+        "Web地図への送信に失敗しました",
+      )
 
+      return
+    }
+
+    /**
+     * ② LINEへ送信
+     */
+    const lineSuccess =
+      await sendOperationEventToLine(
+        eventType,
+        outgoingMessage,
+      )
+
+    if (!lineSuccess) {
+      setFeedback(
+        "Web地図へは送信しましたが、LINE送信に失敗しました",
+      )
+
+      return
+    }
+
+    /**
+     * 両方成功
+     */
+    setFeedback(
+      "Web地図とLINEへ送信しました",
+    )
+
+    setSelectedTemplateId("")
+    setCustomMessage("")
+  } finally {
+    setSending(false)
+  }
+}
   /**
    * 運行情報の解除
    */
@@ -981,7 +1087,7 @@ export default function OperatorLivePage() {
               marginRight: 8,
             }}
           />
-          {sending ? "処理中..." : "Web地図へ送信"}
+          {sending ? "処理中..." : "Web地図・LINEへ送信"}
         </button>
 
         {/* 処理結果 */}
