@@ -8,7 +8,18 @@ import {
   NextResponse,
 } from "next/server"
 
+import {
+  adminDb,
+} from "@/lib/firebase-admin"
+
+import {
+  getCurrentOperatingSchedule,
+} from "@/lib/server/operation-schedule"
+
 export const runtime = "nodejs"
+
+const ALERT_DURATION_MS =
+  30 * 1000
 
 type LineMessage = {
   id?: string
@@ -29,7 +40,7 @@ type LineWebhookBody = {
 }
 
 /**
- * LINE Webhookの署名を検証する
+ * LINE Webhook署名検証
  */
 function verifyLineSignature(
   rawBody: string,
@@ -45,10 +56,14 @@ function verifyLineSignature(
       .digest("base64")
 
   const expectedBuffer =
-    Buffer.from(expectedSignature)
+    Buffer.from(
+      expectedSignature,
+    )
 
   const receivedBuffer =
-    Buffer.from(signature)
+    Buffer.from(
+      signature,
+    )
 
   if (
     expectedBuffer.length !==
@@ -67,8 +82,12 @@ function verifyLineSignature(
  * ② グリスロ予約・乗車連絡LINE
  *
  * LINE
- *   ↓
- * POST /api/line/reservation-webhook
+ * ↓
+ * Webhook
+ * ↓
+ * 運行時間判定
+ * ↓
+ * Firestore通知
  */
 export async function POST(
   request: NextRequest,
@@ -97,11 +116,8 @@ export async function POST(
     }
 
     /**
-     * 重要：
-     * JSONへ変換する前の本文を取得する。
-     *
-     * LINEの署名検証では
-     * 元の本文をそのまま使用する必要がある。
+     * LINE署名検証のため
+     * JSON化前の本文を取得
      */
     const rawBody =
       await request.text()
@@ -112,14 +128,11 @@ export async function POST(
       )
 
     if (!signature) {
-      console.warn(
-        "[line-reservation] Missing LINE signature",
-      )
-
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid signature.",
+          error:
+            "Invalid signature.",
         },
         {
           status: 401,
@@ -127,9 +140,6 @@ export async function POST(
       )
     }
 
-    /**
-     * LINEからの正規Webhookか確認
-     */
     const validSignature =
       verifyLineSignature(
         rawBody,
@@ -145,7 +155,8 @@ export async function POST(
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid signature.",
+          error:
+            "Invalid signature.",
         },
         {
           status: 401,
@@ -153,9 +164,6 @@ export async function POST(
       )
     }
 
-    /**
-     * 署名検証成功後にJSONへ変換
-     */
     let body: LineWebhookBody
 
     try {
@@ -172,7 +180,8 @@ export async function POST(
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid JSON.",
+          error:
+            "Invalid JSON.",
         },
         {
           status: 400,
@@ -186,10 +195,8 @@ export async function POST(
         : []
 
     /**
-     * LINE DevelopersのWebhook検証では
-     * events: [] が送られることがある。
-     *
-     * その場合も200を返す。
+     * LINE Developersの
+     * Webhook URL検証
      */
     if (events.length === 0) {
       console.log(
@@ -202,13 +209,16 @@ export async function POST(
     }
 
     /**
-     * 今回はまだ積層灯を動かさない。
-     *
-     * LINEの「message」イベントを
-     * 正常に受信できたことだけ確認する。
+     * 1回のWebhookに
+     * 複数イベントが含まれる可能性がある
      */
     for (const event of events) {
-      if (event.type !== "message") {
+      /**
+       * messageイベント以外は無視
+       */
+      if (
+        event.type !== "message"
+      ) {
         continue
       }
 
@@ -226,6 +236,108 @@ export async function POST(
           messageType:
             event.message?.type ??
             "unknown",
+        },
+      )
+
+      /**
+       * 現在が運行時間中か確認
+       */
+      const operating =
+        await getCurrentOperatingSchedule()
+
+      /**
+       * 運行時間外なら
+       * 積層灯通知には使用しない
+       */
+      if (!operating) {
+        console.log(
+          "[line-reservation] Message ignored because service is not operating",
+        )
+
+        continue
+      }
+
+      const receivedAt =
+        new Date()
+
+      const activeUntil =
+        new Date(
+          receivedAt.getTime() +
+            ALERT_DURATION_MS,
+        )
+
+      /**
+       * 積層灯制御用Firestoreドキュメント
+       *
+       * 新しいメッセージが来るたび
+       * activeUntilが30秒後へ更新される。
+       *
+       * そのため赤点灯中に
+       * 新しいLINEが来た場合も
+       * 30秒タイマーをリセットできる。
+       */
+      await adminDb
+        .collection(
+          "ride-contact-alert",
+        )
+        .doc("current")
+        .set(
+          {
+            status: "active",
+
+            source: "line",
+
+            receivedAt:
+              receivedAt.toISOString(),
+
+            activeUntil:
+              activeUntil.toISOString(),
+
+            webhookEventId:
+              event.webhookEventId ??
+              null,
+
+            messageId:
+              event.message?.id ??
+              null,
+
+            messageType:
+              event.message?.type ??
+              "unknown",
+
+            operatingDate:
+              operating.date,
+
+            operatingTime:
+              operating.currentTime,
+
+            scheduleStartTime:
+              operating.schedule
+                .startTime,
+
+            scheduleEndTime:
+              operating.schedule
+                .endTime,
+
+            routeType:
+              operating.schedule
+                .routeType,
+
+            startLocation:
+              operating.schedule
+                .startLocation ??
+              "",
+          },
+          {
+            merge: true,
+          },
+        )
+
+      console.log(
+        "[line-reservation] Ride contact alert activated",
+        {
+          activeUntil:
+            activeUntil.toISOString(),
         },
       )
     }

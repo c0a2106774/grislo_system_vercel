@@ -8,6 +8,10 @@ import {
   getAuth,
 } from "firebase-admin/auth"
 
+import {
+  getFirestore,
+} from "firebase-admin/firestore"
+
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim()
 
@@ -43,3 +47,6 @@ const adminApp =
 
 export const adminAuth =
   getAuth(adminApp)
+
+export const adminDb =
+  getFirestore(adminApp)
