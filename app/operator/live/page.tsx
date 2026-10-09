@@ -151,9 +151,6 @@ export default function OperatorLivePage() {
 
   // 運行情報パネル
   const [panelOpen, setPanelOpen] = useState(false)
-  const [eventType, setEventType] =
-    useState<OperationEventType>("delay")
-
   const [templates, setTemplates] = useState<
     OperationEventTemplate[]
   >([])
@@ -437,10 +434,6 @@ export default function OperatorLivePage() {
     return subscribeOperationEvent(setActiveEvent)
   }, [])
 
-  const visibleTemplates = templates.filter(
-    (template) => template.type === eventType,
-  )
-
   const selectedTemplate = templates.find(
     (template) => template.id === selectedTemplateId,
   )
@@ -519,7 +512,7 @@ export default function OperatorLivePage() {
   /**
    * 運行情報の送信
    */
-  async function handlePublish() {
+async function handlePublish() {
   if (!outgoingMessage || sending) return
 
   setSending(true)
@@ -530,19 +523,30 @@ export default function OperatorLivePage() {
       ? locations[locations.length - 1]
       : null
 
+  /**
+   * タブを廃止したため、
+   * 保存済み文章はそのtypeを使用し、
+   * 自由記述はnoticeとして扱う
+   */
+  const publishType: OperationEventType =
+    selectedTemplate?.type ?? "notice"
+
+  const source =
+    customMessage.trim()
+      ? "custom"
+      : "preset"
+
   try {
     /**
      * ① Web地図 / Firestoreへ送信
      */
     const webSuccess =
       await publishOperationEvent({
-        type: eventType,
+        type: publishType,
 
         message: outgoingMessage,
 
-        source: customMessage.trim()
-          ? "custom"
-          : "preset",
+        source,
 
         vehicleLatitude:
           latestLocation?.latitude,
@@ -560,11 +564,46 @@ export default function OperatorLivePage() {
     }
 
     /**
+     * 管理者画面にも即座に反映する。
+     *
+     * Firestoreのリアルタイム監視でも
+     * 更新されるが、送信直後から
+     * 吹き出しを表示できるようにする。
+     */
+    setActiveEvent({
+      type: publishType,
+
+      message:
+        outgoingMessage,
+
+      source,
+
+      status: "active",
+
+      publishedAt:
+        new Date().toISOString(),
+
+      ...(typeof latestLocation?.latitude === "number"
+        ? {
+            vehicleLatitude:
+              latestLocation.latitude,
+          }
+        : {}),
+
+      ...(typeof latestLocation?.longitude === "number"
+        ? {
+            vehicleLongitude:
+              latestLocation.longitude,
+          }
+        : {}),
+    })
+
+    /**
      * ② LINEへ送信
      */
     const lineSuccess =
       await sendOperationEventToLine(
-        eventType,
+        publishType,
         outgoingMessage,
       )
 
@@ -585,6 +624,12 @@ export default function OperatorLivePage() {
 
     setSelectedTemplateId("")
     setCustomMessage("")
+
+    /**
+     * 地図上の吹き出しを確認できるよう
+     * 送信成功後に左パネルを閉じる
+     */
+    setPanelOpen(false)
   } finally {
     setSending(false)
   }
@@ -611,6 +656,9 @@ export default function OperatorLivePage() {
     }
   }
 
+  const hasVehicleLocation =
+  locations.length > 0
+
   return (
     <main
       style={{
@@ -636,6 +684,77 @@ export default function OperatorLivePage() {
           userLocation={userLocation}
           activeEvent={activeEvent}
         />
+      {/* GPSが取得できない場合の運行情報表示 */}
+{activeEvent &&
+  !hasVehicleLocation && (
+    <div
+      style={{
+        position: "fixed",
+        top: 16,
+        left: "50%",
+        transform:
+          "translateX(-50%)",
+        zIndex: 11000,
+        width:
+          "min(520px, calc(100vw - 140px))",
+        boxSizing: "border-box",
+        padding: "14px 18px",
+        borderRadius: 12,
+        backgroundColor: "#eff6ff",
+        border:
+          "1px solid #bfdbfe",
+        boxShadow:
+          "0 4px 16px rgba(0,0,0,0.18)",
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 5,
+          fontSize: 12,
+          fontWeight: 800,
+          color: "#1d4ed8",
+        }}
+      >
+        運行情報
+      </div>
+
+      <div
+        style={{
+          fontSize: 15,
+          fontWeight: 700,
+          lineHeight: 1.5,
+          color: "#111827",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {activeEvent.message}
+      </div>
+
+      <div
+        style={{
+          marginTop: 6,
+          fontSize: 11,
+          color: "#6b7280",
+        }}
+      >
+        {formatJapanTime(
+          activeEvent.publishedAt,
+        )}{" "}
+        更新
+      </div>
+
+      <div
+        style={{
+          marginTop: 5,
+          fontSize: 10,
+          color: "#9ca3af",
+        }}
+      >
+        車両位置情報を取得できないため、
+        画面上部に表示しています
+      </div>
+    </div>
+  )}  
       </div>
 
       {/* 地図操作 */}
@@ -758,17 +877,6 @@ export default function OperatorLivePage() {
           遅延・運行情報
         </h1>
 
-        <p
-          style={{
-            margin: "6px 0 20px",
-            fontSize: 13,
-            color: "#6b7280",
-            lineHeight: 1.5,
-          }}
-        >
-          保存済みの文章を選択するか、
-          自由記述で運行情報を入力します。
-        </p>
 
         {/* 現在表示中 */}
         {activeEvent && (
@@ -863,66 +971,7 @@ export default function OperatorLivePage() {
           </section>
         )}
 
-        {/* 種類 */}
-        <section style={{ marginBottom: 20 }}>
-          <div
-            style={{
-              marginBottom: 8,
-              fontSize: 13,
-              fontWeight: 800,
-              color: "#374151",
-            }}
-          >
-            種類
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 8,
-            }}
-          >
-            {(
-              Object.keys(EVENT_TYPE_LABELS) as
-                OperationEventType[]
-            ).map((type) => {
-              const selected = eventType === type
-
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => {
-                    setEventType(type)
-                    setSelectedTemplateId("")
-                    setCustomMessage("")
-                    setFeedback("")
-                  }}
-                  style={{
-                    padding: "11px 6px",
-                    borderRadius: 9,
-                    border: selected
-                      ? "2px solid #f59e0b"
-                      : "1px solid #d1d5db",
-                    backgroundColor: selected
-                      ? "#fffbeb"
-                      : "white",
-                    color: selected
-                      ? "#92400e"
-                      : "#374151",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  {EVENT_TYPE_LABELS[type]}
-                </button>
-              )
-            })}
-          </div>
-        </section>
-
+       
         {/* 定型文 */}
         <section style={{ marginBottom: 20 }}>
           <div
@@ -943,7 +992,7 @@ export default function OperatorLivePage() {
               gap: 8,
             }}
           >
-            {visibleTemplates.map((template) => {
+            {templates.map((template) => {
               const selected =
                 selectedTemplateId === template.id &&
                 !customMessage.trim()

@@ -19,34 +19,24 @@ const TEMPLATE_DOCUMENT = "operation-event-templates"
 // Firestoreにまだ定型文が登録されていない場合に使用する初期データ
 export const DEFAULT_OPERATION_EVENT_TEMPLATES: OperationEventTemplate[] = [
   {
-    id: "delay-10",
-    type: "delay",
-    message: "道路混雑のため、約10分遅れています。",
-  },
-  {
-    id: "delay-20",
-    type: "delay",
-    message: "道路混雑のため、約20分遅れています。",
-  },
-  {
-    id: "delay-boarding",
-    type: "delay",
-    message: "乗降対応のため、遅れが発生しています。",
-  },
-  {
-    id: "stopped-safety",
-    type: "stopped",
-    message: "安全確認のため、一時停止しています。",
-  },
-  {
-    id: "stopped-vehicle",
-    type: "stopped",
-    message: "車両確認のため、一時停止しています。",
-  },
-  {
-    id: "notice-resume",
+    id: "traffic-jam",
     type: "notice",
-    message: "まもなく運行を再開します。",
+    message: "道路が渋滞をしています。",
+  },
+  {
+    id: "going-to-pickup",
+    type: "notice",
+    message: "これから迎えに行きます。",
+  },
+  {
+    id: "boarding",
+    type: "notice",
+    message: "乗り降りしています。",
+  },
+  {
+    id: "nice-wind",
+    type: "notice",
+    message: "風が気持ちいです。",
   },
 ]
 
@@ -247,7 +237,6 @@ export async function resolveOperationEvent(): Promise<boolean> {
     return false
   }
 }
-
 /**
  * iPad / スマホの左側パネルに表示する
  * 保存済み定型文を取得する
@@ -267,7 +256,9 @@ export async function getOperationEventTemplates(): Promise<
 
     const snapshot = await getDoc(templateRef)
 
-    // すでにFirestoreに登録されている場合
+    /**
+     * Firestoreに現在保存されている内容を確認
+     */
     if (snapshot.exists()) {
       const data = snapshot.data()
 
@@ -295,17 +286,38 @@ export async function getOperationEventTemplates(): Promise<
             },
           )
 
-        // 正常な定型文が1件以上あれば使用
-        if (templates.length > 0) {
+        /**
+         * すでに新しい4つの文章になっている場合は
+         * Firestoreを書き換えずそのまま使用
+         */
+        const isLatest =
+          templates.length ===
+            DEFAULT_OPERATION_EVENT_TEMPLATES.length &&
+          templates.every(
+            (template, index) => {
+              const expected =
+                DEFAULT_OPERATION_EVENT_TEMPLATES[index]
+
+              return (
+                template.id === expected.id &&
+                template.type === expected.type &&
+                template.message === expected.message
+              )
+            },
+          )
+
+        if (isLatest) {
           return templates
         }
       }
     }
 
-    // Firestoreにまだ無い場合は初期データを書き込む
+    /**
+     * 古い定型文だった場合は
+     * 新しい4つへ更新
+     */
     await setDoc(
       templateRef,
-
       {
         templates:
           DEFAULT_OPERATION_EVENT_TEMPLATES,
@@ -313,7 +325,6 @@ export async function getOperationEventTemplates(): Promise<
         updatedAt:
           new Date().toISOString(),
       },
-
       {
         merge: true,
       },
@@ -326,8 +337,6 @@ export async function getOperationEventTemplates(): Promise<
       error,
     )
 
-    // Firestoreでエラーになっても
-    // 最低限アプリが使えるよう初期データを返す
     return DEFAULT_OPERATION_EVENT_TEMPLATES
   }
 }
