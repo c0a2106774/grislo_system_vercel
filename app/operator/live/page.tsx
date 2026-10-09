@@ -781,11 +781,11 @@ async function handlePublish() {
         onClick={() => setPanelOpen((current) => !current)}
         style={{
           position: "fixed",
-          top: 40,  //init=16
-          left: 40, //init=16
+          top: 16,  
+          left: 16, 
           zIndex: 11002,
-          width: 100,  //init=54
-          height: 100, //init=54
+          width: 54,  
+          height: 54, 
           borderRadius: 14,
           border: activeEvent
             ? "2px solid #dc2626"
