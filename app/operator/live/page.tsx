@@ -775,51 +775,76 @@ async function handlePublish() {
       </div>
 
       {/* 左上の運行情報ボタン */}
-      <button
-        type="button"
-        aria-label="遅延・運行情報を開く"
-        onClick={() => setPanelOpen((current) => !current)}
-        style={{
-          position: "fixed",
-          top: 16,  
-          left: 16, 
-          zIndex: 11002,
-          width: 54,  
-          height: 54, 
-          borderRadius: 14,
-          border: activeEvent
-            ? "2px solid #dc2626"
-            : "1px solid #f59e0b",
-          backgroundColor: activeEvent
-            ? "#fef2f2"
-            : "#fffbeb",
-          color: activeEvent
-            ? "#b91c1c"
-            : "#92400e",
-          boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-        }}
-      >
-        <AlertTriangle size={28} strokeWidth={2.4} />
+      
+<button
+  type="button"
+  aria-label="運行情報を開く"
+  onClick={() => setPanelOpen((current) => !current)}
+  style={{
+    position: "fixed",
+    top: 16,
+    left: 16,
+    zIndex: 11002,
 
-        {activeEvent && (
-          <span
-            style={{
-              position: "absolute",
-              top: -4,
-              right: -4,
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              backgroundColor: "#dc2626",
-              border: "2px solid white",
-            }}
-          />
-        )}
-      </button>
+    height: 54,
+    padding: "0 16px",
+
+    borderRadius: 14,
+
+    border: activeEvent
+      ? "2px solid #dc2626"
+      : "1px solid #f59e0b",
+
+    backgroundColor: activeEvent
+      ? "#fef2f2"
+      : "#fffbeb",
+
+    color: activeEvent
+      ? "#b91c1c"
+      : "#92400e",
+
+    boxShadow:
+      "0 4px 14px rgba(0,0,0,0.18)",
+
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+
+    cursor: "pointer",
+  }}
+>
+  <AlertTriangle
+    size={28}
+    strokeWidth={2.4}
+  />
+
+  <span
+    style={{
+      fontSize: 22,
+      fontWeight: 800,
+      lineHeight: 1,
+      whiteSpace: "nowrap",
+    }}
+  >
+    運行情報
+  </span>
+
+  {activeEvent && (
+    <span
+      style={{
+        position: "absolute",
+        top: -4,
+        right: -4,
+        width: 14,
+        height: 14,
+        borderRadius: "50%",
+        backgroundColor: "#dc2626",
+        border: "2px solid white",
+      }}
+    />
+  )}
+</button>
 
       {/* 左側パネル */}
       <aside
@@ -866,7 +891,7 @@ async function handlePublish() {
           <X size={22} />
         </button>
 
-        <h1
+        {/*<h1
           style={{
             margin: 10, //init=8
             fontSize: 22,
@@ -875,7 +900,7 @@ async function handlePublish() {
           }}
         >
           遅延・運行情報
-        </h1>
+        </h1> */}
 
 
         {/* 現在表示中 */}
