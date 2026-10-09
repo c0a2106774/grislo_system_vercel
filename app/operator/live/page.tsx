@@ -999,18 +999,7 @@ async function handlePublish() {
        
         {/* 定型文 */}
         <section style={{ marginBottom: 20 }}>
-          <div
-            style={{
-              marginTop: 8,
-              marginBottom: 8, //追加
-              fontSize: 20,
-              fontWeight: 800,
-              color: "#374151",
-            }}
-          >
-            保存されている情報
-          </div>
-
+          
           <div
             style={{
               display: "flex",
