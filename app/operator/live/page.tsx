@@ -781,11 +781,11 @@ async function handlePublish() {
         onClick={() => setPanelOpen((current) => !current)}
         style={{
           position: "fixed",
-          top: 16,
-          left: 16,
+          top: 40,  //init=16
+          left: 40, //init=16
           zIndex: 11002,
-          width: 54,
-          height: 54,
+          width: 100,  //init=54
+          height: 100, //init=54
           borderRadius: 14,
           border: activeEvent
             ? "2px solid #dc2626"
@@ -868,7 +868,7 @@ async function handlePublish() {
 
         <h1
           style={{
-            margin: 0,
+            margin: 10, //init=8
             fontSize: 22,
             fontWeight: 800,
             color: "#111827",
@@ -976,8 +976,9 @@ async function handlePublish() {
         <section style={{ marginBottom: 20 }}>
           <div
             style={{
-              marginBottom: 8,
-              fontSize: 13,
+              marginTop: 8,
+              marginBottom: 8, //追加
+              fontSize: 20,
               fontWeight: 800,
               color: "#374151",
             }}
@@ -1095,6 +1096,7 @@ async function handlePublish() {
               style={{
                 marginTop: 5,
                 whiteSpace: "pre-wrap",
+                fontSize: 13, //追加
               }}
             >
               {outgoingMessage}
