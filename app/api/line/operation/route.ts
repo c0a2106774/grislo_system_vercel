@@ -168,8 +168,16 @@ export async function POST(
     /**
      * LINEへ送信する文章
      */
-    const lineMessage =
-      `【グリスロ運行情報｜${TYPE_LABELS[type]}】\n${message}`
+    const webAppUrl =
+  "https://grislo-system-vercel.vercel.app/"
+
+const lineMessage = [
+  `【グリスロ運行情報｜${TYPE_LABELS[type]}】`,
+  message,
+  "",
+  "現在の位置情報",
+  webAppUrl,
+].join("\n")
 
     /**
      * LINE Messaging API
