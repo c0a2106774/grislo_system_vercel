@@ -1,0 +1,455 @@
+"use client"
+
+import { doc, onSnapshot, Timestamp } from "firebase/firestore"
+import { useEffect, useRef, useState } from "react"
+import type { LeafletMouseEvent, Map as LeafletMap } from "leaflet"
+import { MapWrapper } from "@/components/map-wrapper"
+import { parseTimetableStops, useSimulationTimetableMarkers } from "@/components/simulation-timetable-markers"
+import type { TimetableStop } from "@/components/simulation-timetable-markers"
+import { db, getSavedRoute } from "@/lib/firebase"
+import { subscribeSimulationEvent } from "@/lib/simulation-events"
+import type { LocationData, OperationEvent } from "@/lib/types"
+
+export default function SimulationViewerPage() {
+  const [locations, setLocations] = useState<LocationData[]>([])
+  const [activeEvent, setActiveEvent] = useState<OperationEvent | null>(null)
+  const [selectedRouteId, setSelectedRouteId] = useState("")
+  const [routeName, setRouteName] = useState("")
+  const [plannedRoute, setPlannedRoute] = useState<[number, number][]>([])
+  const [timetableStops, setTimetableStops] = useState<TimetableStop[]>([])
+  const [routeError, setRouteError] = useState("")
+  const [map, setMap] = useState<LeafletMap | null>(null)
+  // 選択した利用者の位置は固定。GPSの再生で更新しない。
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  // UIだけの変更：オペレーションパネルの開閉状態
+  const [operationOpen, setOperationOpen] = useState(false)
+  const [selectingLocation, setSelectingLocation] = useState(false)
+  const [locating, setLocating] = useState(false)
+  const [locationError, setLocationError] = useState("")
+  const [status, setStatus] = useState("未開始")
+  const [source, setSource] = useState("")
+  const [lastUpdate, setLastUpdate] = useState(0)
+  const [now, setNow] = useState(Date.now())
+  const [error, setError] = useState("")
+  const centeredRef = useRef(false)
+  const sourceRef = useRef("")
+  const previousPositionRef = useRef(-1)
+
+  // 選択済み時刻表ピンの表示（位置情報は変化しない）。
+  useSimulationTimetableMarkers(map, timetableStops)
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // 地図上で任意の場所を1回クリック（タップ）して利用者の位置を固定する。
+  // 選択を終えたらイベントを解除し、グリスロのGPS更新では位置を動かさない。
+  useEffect(() => {
+    if (!map || !selectingLocation) return
+
+    const container = map.getContainer()
+    const previousCursor = container.style.cursor
+    container.style.cursor = "crosshair"
+
+    const handleMapClick = (event: LeafletMouseEvent) => {
+      const { lat, lng } = event.latlng
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+      setUserLocation({ lat, lng })
+      setLocationError("")
+      setSelectingLocation(false)
+      // 利用者が選んだ場所を、次のGPS更新で自動的に移動させない。
+      centeredRef.current = true
+    }
+
+    map.on("click", handleMapClick)
+    return () => {
+      map.off("click", handleMapClick)
+      container.style.cursor = previousCursor
+    }
+  }, [map, selectingLocation])
+
+  // 端末の実際の現在地を取得する場合も1回だけ。watchPositionは使わない。
+  const fixToDeviceLocation = () => {
+    if (!map || locating) return
+    setSelectingLocation(false)
+    setLocationError("")
+
+    if (!("geolocation" in navigator)) {
+      setLocationError("この端末は現在地の取得に対応していません。地図から位置を選択してください。")
+      return
+    }
+
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        setLocating(false)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          setLocationError("取得した位置情報が正しくありません。")
+          return
+        }
+        setUserLocation({ lat, lng })
+        centeredRef.current = true
+        map.setView([lat, lng], 16)
+      },
+      (err) => {
+        setLocating(false)
+        setLocationError(`端末の現在地を取得できませんでした（${err.message}）。地図からも選択できます。`)
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    )
+  }
+
+  // FirestoreのシミュレーションGPSと共に送られるルートIDを使い、
+  // 実際のルート形状は saved-routes/{routeId} から取得する。
+  useEffect(() => {
+    let alive = true
+    setRouteName("")
+    setPlannedRoute([])
+    setRouteError("")
+    if (!selectedRouteId || !map) return
+
+    void getSavedRoute(selectedRouteId)
+      .then((route) => {
+        if (!alive) return
+        if (!route) {
+          setRouteError("指定された保存済みルートが見つかりません。")
+          return
+        }
+        const coordinates: [number, number][] = (route.points ?? [])
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+          .map((point) => [point.lat, point.lng])
+        setRouteName(route.name || selectedRouteId)
+        setPlannedRoute(coordinates)
+        if (coordinates.length === 0) setRouteError("ルートの座標が登録されていません。")
+      })
+      .catch((e) => {
+        if (alive) setRouteError(`ルートの取得に失敗しました：${String(e)}`)
+      })
+    return () => { alive = false }
+  }, [selectedRouteId, map])
+
+  // Step 5-3：本番用のoperation-statusではなく、テスト用だけを監視する。
+  useEffect(() => {
+    return subscribeSimulationEvent(setActiveEvent)
+  }, [])
+
+  useEffect(() => {
+    // 既存の地図が初期化された後に監視を開始する。
+    if (!map) return
+    return onSnapshot(doc(db, "simulation", "current"), (snapshot) => {
+      if (!snapshot.exists()) {
+        setStatus("データ未作成")
+        setSelectedRouteId("")
+        setTimetableStops([])
+        setLocations([])
+        return
+      }
+      const data = snapshot.data()
+      setSelectedRouteId(typeof data.selectedRouteId === "string" ? data.selectedRouteId : "")
+      const receivedStops = parseTimetableStops(data.timetableStops)
+      setTimetableStops((prev) => JSON.stringify(prev) === JSON.stringify(receivedStops) ? prev : receivedStops)
+      const state = typeof data.status === "string" ? data.status : "不明"
+      setStatus(state)
+      setSource(typeof data.sourceCollection === "string" ? data.sourceCollection : "")
+      setError("")
+      const updated = data.updatedAt instanceof Timestamp
+        ? data.updatedAt.toMillis()
+        : Date.parse(String(data.timestamp ?? ""))
+      setLastUpdate(Number.isFinite(updated) ? updated : 0)
+
+      if (state === "stopped") {
+        setLocations([])
+        sourceRef.current = ""
+        previousPositionRef.current = -1
+        centeredRef.current = false
+        return
+      }
+      if (!Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) return
+      const newSource = String(data.sourceCollection ?? "")
+      if (sourceRef.current !== newSource) {
+        sourceRef.current = newSource
+        previousPositionRef.current = -1
+        centeredRef.current = false
+      }
+      const point: LocationData = {
+        id: `${newSource}:${data.pointIndex ?? "?"}`,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date(),
+        ...(typeof data.speed === "number" ? { speed: data.speed } : {}),
+        ...(typeof data.heading === "number" ? { heading: data.heading } : {}),
+        ...(typeof data.accuracy === "number" ? { accuracy: data.accuracy } : {}),
+      }
+      const incomingIndex = typeof data.pointIndex === "number" ? data.pointIndex : -1
+      const previousIndex = previousPositionRef.current
+      const isJump = previousIndex >= 0 && incomingIndex !== previousIndex + 1
+      previousPositionRef.current = incomingIndex
+      setLocations((old) => {
+        if (!old.length || !old[0].id?.startsWith(`${newSource}:`)) return [point]
+        if (old[old.length - 1].id === point.id && !isJump) return old
+        if (isJump) return [point]
+        return [...old.slice(-5), point]
+      })
+    }, (e) => setError(`GPS受信に失敗しました：${e.message}`))
+  }, [map])
+
+  useEffect(() => {
+    if (!map || !locations.length || centeredRef.current || userLocation) return
+    const last = locations[locations.length - 1]
+    map.setView([last.latitude, last.longitude], 16)
+    centeredRef.current = true
+  }, [map, locations, userLocation])
+
+  // GPS未再生でも選択ルートを確認できるよう、必要なときだけ表示範囲を調整。
+  // 利用者位置の固定やGPSの追従を優先し、通常の地図操作には介入しない。
+  useEffect(() => {
+    if (!map || !plannedRoute.length || locations.length || userLocation || centeredRef.current) return
+    map.fitBounds(plannedRoute, { padding: [24, 24], maxZoom: 16 })
+    centeredRef.current = true
+  }, [map, plannedRoute, locations.length, userLocation])
+
+  const stale = status === "playing" && lastUpdate > 0 && now - lastUpdate > 30000
+  const eventTypeLabel = activeEvent?.type === "delay"
+    ? "遅延情報"
+    : activeEvent?.type === "stopped"
+      ? "一時停止中"
+      : "お知らせ"
+  const publishedAt = activeEvent ? new Date(activeEvent.publishedAt) : null
+  const hasPublishedAt = publishedAt !== null && !Number.isNaN(publishedAt.getTime())
+
+  return (
+    <main className="relative h-screen w-screen overflow-hidden">
+      {/* MapWrapper・GPS受信・位置固定の仕組みは変更していません */}
+      <div className="absolute inset-0" style={{ zIndex: 1 }}>
+        <MapWrapper
+          locations={locations}
+          activeEvent={activeEvent}
+          plannedRoute={plannedRoute}
+          userLocation={userLocation}
+          onMapReady={setMap}
+        />
+      </div>
+
+      {/* 地図左上のオペレーションボタン：開くまで設定項目は表示しない */}
+      <button
+        type="button"
+        aria-expanded={operationOpen}
+        aria-controls="simulation-operation-panel"
+        onClick={() => setOperationOpen((old) => !old)}
+        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 shadow-lg"
+        style={{
+          position: "fixed",
+          top: 16,
+          left: 16,
+          zIndex: 22000,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+          minHeight: 48,
+          backgroundColor: "#ffffff",
+          color: "#0f172a",
+        }}
+      >
+        <span aria-hidden="true" className="text-xl leading-none">☰</span>
+        <span>オペレーション</span>
+        {userLocation && (
+          <span className="rounded-full border border-blue-200 bg-white px-2 py-1 text-xs text-blue-800">
+            位置固定中
+          </span>
+        )}
+      </button>
+
+      {/* 実運行と誤認しないため、パネルを閉じたときもテスト表示を残す */}
+      <div
+        className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-bold text-orange-700 shadow"
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          zIndex: 18000,
+          maxWidth: "calc(100vw - 230px)",
+        }}
+      >
+        テスト環境・実際の運行ではありません
+      </div>
+
+      {/* 位置選択中は地図が全面操作できる。キャンセルはこの帯からも可能 */}
+      {selectingLocation && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-white p-3 text-sm font-semibold text-blue-900 shadow-xl"
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 22000,
+            width: "min(510px, calc(100vw - 32px))",
+            boxSizing: "border-box",
+          }}
+        >
+          <span className="flex-1">地図をクリック（タップ）して自分の位置を選んでください。</span>
+          <button
+            type="button"
+            onClick={() => setSelectingLocation(false)}
+            className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-blue-900"
+          >
+            キャンセル
+          </button>
+        </div>
+      )}
+
+      {/* オペレーションを押したときにだけ開くパネル */}
+      {operationOpen && (
+        <aside
+          id="simulation-operation-panel"
+          aria-label="シミュレーションのオペレーション"
+          className="overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
+          style={{
+            position: "fixed",
+            top: 76,
+            left: 16,
+            zIndex: 21000,
+            width: "min(384px, calc(100vw - 32px))",
+            maxHeight: "calc(100vh - 92px)",
+            overflowY: "auto",
+            boxSizing: "border-box",
+            color: "#0f172a",
+            backgroundColor: "#ffffff",
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-lg font-bold text-slate-900">オペレーション</h1>
+            <button
+              type="button"
+              aria-label="パネルを閉じる"
+              onClick={() => setOperationOpen(false)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"
+            >
+              閉じる ×
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            位置を指定すると利用者の青いマーカーが固定されます。
+          </p>
+
+          <section className="mt-4 border-t border-slate-200 pt-4">
+            <h2 className="text-sm font-bold text-slate-900">自分の位置情報（固定）</h2>
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={!map || locating}
+                onClick={() => {
+                  // 位置の選択機能は既存のものを使用。パネルだけ閉じる。
+                  const next = !selectingLocation
+                  setSelectingLocation(next)
+                  setLocationError("")
+                  if (next) setOperationOpen(false)
+                }}
+                className="w-full rounded-lg border border-blue-700 bg-white px-3 py-3 text-sm font-semibold text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {selectingLocation
+                  ? "選択をキャンセル"
+                  : userLocation
+                    ? "地図で位置を選び直す"
+                    : "地図で位置を選ぶ"}
+              </button>
+              <button
+                type="button"
+                disabled={!map || locating}
+                onClick={fixToDeviceLocation}
+                className="w-full rounded-lg border border-blue-700 bg-white px-3 py-3 text-sm font-semibold text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {locating ? "取得中…" : "端末の現在地を1回取得"}
+              </button>
+            </div>
+            {userLocation ? (
+              <div className="mt-3 rounded-lg border border-blue-200 bg-white p-3 text-xs text-blue-900">
+                <p className="font-bold">青いマーカーの位置は固定されています</p>
+                <p className="mt-1">緯度：{userLocation.lat.toFixed(6)}</p>
+                <p>経度：{userLocation.lng.toFixed(6)}</p>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-600">自分の位置はまだ選択されていません。</p>
+            )}
+            {locationError && (
+              <p role="alert" className="mt-3 text-xs text-red-700">{locationError}</p>
+            )}
+          </section>
+
+          <section className="mt-4 border-t border-slate-200 pt-4">
+            <h2 className="text-sm font-bold text-slate-900">選択中の循環ルート</h2>
+            <p className="mt-2 text-sm text-slate-700">
+              {selectedRouteId ? (routeName || "読み込み中…") : "未選択（ルートを非表示）"}
+            </p>
+            {selectedRouteId && plannedRoute.length > 0 && (
+              <p className="mt-1 text-xs text-slate-600">青い線で表示中（{plannedRoute.length}地点）</p>
+            )}
+            {routeError && <p role="alert" className="mt-2 text-xs text-red-700">{routeError}</p>}
+          </section>
+
+          <section className="mt-4 border-t border-slate-200 pt-4">
+            <h2 className="text-sm font-bold text-slate-900">時刻表（テスト）</h2>
+            <p className="mt-1 text-xs text-slate-600">地図上に赤いピンと予定時刻を表示しています。</p>
+            {timetableStops.length ? (
+              <ol className="mt-2 space-y-2">
+                {timetableStops.map((stop) => (
+                  <li key={stop.id} className="flex gap-3 rounded-lg border border-rose-100 bg-white p-2 text-sm">
+                    <strong className="whitespace-nowrap tabular-nums text-rose-700">{stop.time}</strong>
+                    <span className="min-w-0 flex-1 break-words text-slate-900">{stop.name}</span>
+                    <button type="button" onClick={() => map?.setView([stop.latitude, stop.longitude], 16)}
+                      className="whitespace-nowrap rounded border border-rose-300 bg-white px-2 text-xs font-semibold text-rose-700">
+                      地図へ
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : <p className="mt-2 text-sm text-slate-600">時刻表は登録されていません。</p>}
+          </section>
+
+          <section className="mt-4 border-t border-slate-200 pt-4">
+            <h2 className="text-sm font-bold text-slate-900">GPS再生状況</h2>
+            <p className="mt-2 text-sm text-slate-700">
+              状態：{stale ? "更新停止（30秒以上未受信）" : status}
+            </p>
+            <p className="text-sm text-slate-700">元の運行記録：{source || "未選択"}</p>
+            {lastUpdate > 0 && (
+              <p className="text-sm text-slate-700">
+                最終受信：{new Date(lastUpdate).toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo" })}
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>
+            )}
+          </section>
+
+          <section className="mt-4 border-t border-slate-200 pt-4">
+            <h2 className="text-sm font-bold text-slate-900">現在の運行情報（テスト）</h2>
+            {activeEvent ? (
+              <div className="mt-2 rounded-lg border border-blue-200 bg-white p-3">
+                <p className="text-xs font-bold text-blue-700">{eventTypeLabel}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm font-semibold text-slate-900">
+                  {activeEvent.message}
+                </p>
+                {hasPublishedAt && publishedAt && (
+                  <p className="mt-1 text-xs text-slate-600">
+                    送信時刻：{publishedAt.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
+                {!locations.length && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    GPS位置情報がないため、地図上の吹き出しは表示できません。
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-600">表示中の運行情報はありません。</p>
+            )}
+          </section>
+        </aside>
+      )}
+    </main>
+  )
+}

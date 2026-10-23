@@ -1,0 +1,261 @@
+"use client"
+
+import { onAuthStateChanged, getAuth } from "firebase/auth"
+import { doc, serverTimestamp, setDoc } from "firebase/firestore"
+import { useEffect, useRef, useState } from "react"
+import { app, db, getAllLocationsFromCollection, getDateCollections } from "@/lib/firebase"
+import type { LocationData } from "@/lib/types"
+
+const simulationRef = doc(db, "simulation", "current")
+
+type PlaybackStatus = "playing" | "paused" | "stopped" | "completed"
+
+// Android端末の日本時間文字列「2026-09-29 14:18:00」も正しく扱う。
+function timestampMs(value: string | Date): number {
+  if (value instanceof Date) return value.getTime()
+  const raw = String(value).trim()
+  const jst = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw)
+    ? `${raw.replace(" ", "T")}+09:00`
+    : raw
+  return new Date(jst).getTime()
+}
+
+function originalTimestamp(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : String(value)
+}
+
+export default function SimulationControlPage() {
+  const [signedIn, setSignedIn] = useState(false)
+  const [collections, setCollections] = useState<string[]>([])
+  const [selected, setSelected] = useState("")
+  const [points, setPoints] = useState<LocationData[]>([])
+  const [speed, setSpeed] = useState(1)
+  const [index, setIndex] = useState(-1)
+  const [playing, setPlaying] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tokenRef = useRef(0)
+
+  function cancelTimer() {
+    tokenRef.current += 1
+    if (timeoutRef.current !== null) clearTimeout(timeoutRef.current)
+    timeoutRef.current = null
+    setPlaying(false)
+  }
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(getAuth(app), (user) => {
+  console.log("Simulation Firebase UID:", user?.uid ?? "未ログイン")
+  setSignedIn(Boolean(user))
+})
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    getDateCollections()
+      .then((items) => {
+        if (alive) setCollections(items)
+      })
+      .catch(() => {
+        if (alive) setError("運行一覧を取得できませんでした。")
+      })
+    return () => {
+      alive = false
+      tokenRef.current += 1
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current)
+    }
+  }, [])
+
+  async function chooseCollection(name: string) {
+    cancelTimer()
+    setSelected(name)
+    setIndex(-1)
+    setPoints([])
+    setError("")
+    if (!name) return
+    setLoading(true)
+    try {
+      const result = await getAllLocationsFromCollection(name)
+      const valid = result
+        .filter((p) =>
+          Number.isFinite(p.latitude) &&
+          Number.isFinite(p.longitude) &&
+          Number.isFinite(timestampMs(p.timestamp)),
+        )
+        .sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp))
+      setPoints(valid)
+      if (valid.length === 0) {
+        setError("GPS記録がありません。Firestoreの読み取り権限も確認してください。")
+      }
+    } catch (e) {
+      setError(`GPS履歴の取得に失敗しました：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function updateStatus(status: PlaybackStatus) {
+    try {
+      await setDoc(simulationRef, {
+        status,
+        updatedAt: serverTimestamp(),
+      }, { merge: true })
+    } catch (e) {
+      setError(`状態の更新に失敗しました：${String(e)}`)
+    }
+  }
+
+  async function publishPoint(position: number, token: number) {
+    if (token !== tokenRef.current) return
+    const point = points[position]
+    if (!point) {
+      setPlaying(false)
+      return
+    }
+
+    const isLast = position === points.length - 1
+    try {
+      await setDoc(simulationRef, {
+        sourceCollection: selected,
+        sourceTimestamp: originalTimestamp(point.timestamp),
+        pointIndex: position,
+        totalPoints: points.length,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        speed: point.speed ?? null,
+        accuracy: point.accuracy ?? null,
+        heading: point.heading ?? null,
+        // 現実の受信時刻として現在時刻を保存する。元の日付は上のフィールドに保持する。
+        timestamp: new Date().toISOString(),
+        speedMultiplier: speed,
+        status: isLast ? "completed" : "playing",
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e) {
+      if (token === tokenRef.current) {
+        cancelTimer()
+        setError(`GPS配信に失敗しました：${String(e)}`)
+      }
+      return
+    }
+    if (token !== tokenRef.current) return
+    setIndex(position)
+    if (isLast) {
+      setPlaying(false)
+      return
+    }
+
+    const originalGap =
+      timestampMs(points[position + 1].timestamp) - timestampMs(point.timestamp)
+    // 同じドキュメントへの過剰な連続書き込みを防ぐため最短1秒に制限。
+    const delay = Math.max(1000, Math.min(60000, originalGap / speed))
+    timeoutRef.current = setTimeout(() => {
+      void publishPoint(position + 1, token)
+    }, delay)
+  }
+
+  function start() {
+    if (!signedIn) {
+      setError("管理者としてログインした状態で開いてください。")
+      return
+    }
+    if (playing || points.length === 0) return
+    setError("")
+    setPlaying(true)
+    const token = ++tokenRef.current
+    const nextIndex = index + 1 >= points.length ? 0 : index + 1
+    void publishPoint(nextIndex, token)
+  }
+
+  function pause() {
+    cancelTimer()
+    void updateStatus("paused")
+  }
+
+  function stop() {
+    cancelTimer()
+    setIndex(-1)
+    void updateStatus("stopped")
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
+      <section className="mx-auto max-w-2xl space-y-5 rounded-xl bg-white p-6 shadow">
+        <div>
+          <p className="mb-1 text-sm font-bold text-orange-600">テスト環境・本番には配信しません</p>
+          <h1 className="text-2xl font-bold">グリスロGPSシミュレーター</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            過去の運行記録を、現在受信中のGPSとしてsimulation/currentへ配信します。
+          </p>
+        </div>
+
+        {!signedIn && (
+          <p role="alert" className="rounded bg-amber-50 p-3 text-amber-800">
+            Firebaseの管理者ログインが必要です。
+          </p>
+        )}
+
+        <label className="block space-y-2">
+          <span className="font-semibold">再生する過去の運行</span>
+          <select
+            className="w-full rounded border border-slate-300 bg-white p-3"
+            value={selected}
+            disabled={playing || loading}
+            onChange={(e) => void chooseCollection(e.target.value)}
+          >
+            <option value="">運行記録を選択</option>
+            {collections.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block space-y-2">
+          <span className="font-semibold">再生速度</span>
+          <select
+            className="w-full rounded border border-slate-300 bg-white p-3"
+            value={speed}
+            disabled={playing}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+          >
+            {[1, 2, 5, 10].map((rate) => (
+              <option key={rate} value={rate}>{rate}倍速</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="rounded-lg bg-slate-100 p-4">
+          <p>読み込み済みGPS記録：<strong>{points.length}件</strong></p>
+          <p>配信位置：<strong>{Math.max(index + 1, 0)} / {points.length}</strong></p>
+          <p>現在の状態：<strong>{playing ? "再生中" : "停止中・一時停止中"}</strong></p>
+          {loading && <p>GPS履歴を読み込み中...</p>}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={start} disabled={!signedIn || playing || !points.length}
+            className="rounded bg-green-600 px-5 py-3 font-semibold text-white disabled:opacity-40">
+            {index < 0 || index >= points.length - 1 ? "▶ 再生" : "▶ 再開"}
+          </button>
+          <button type="button" onClick={pause} disabled={!playing}
+            className="rounded bg-amber-500 px-5 py-3 font-semibold text-white disabled:opacity-40">
+            一時停止
+          </button>
+          <button type="button" onClick={stop} disabled={!signedIn}
+            className="rounded bg-slate-700 px-5 py-3 font-semibold text-white disabled:opacity-40">
+            停止・リセット
+          </button>
+        </div>
+        {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
+        <a className="inline-block font-semibold text-blue-700 underline" href="/simulation/view" target="_blank" rel="noopener noreferrer">
+          GPS閲覧画面を別タブで開く →
+        </a>
+        <p className="text-xs text-slate-500">
+          再生中はこの画面を開いたままにしてください。バックグラウンドタブでは再生間隔が遅れる場合があります。
+          Firestoreへの配信は最短1秒間隔に制限しています。
+        </p>
+      </section>
+    </main>
+  )
+}

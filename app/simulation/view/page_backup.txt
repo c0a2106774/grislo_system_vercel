@@ -1,0 +1,104 @@
+"use client"
+
+import { doc, onSnapshot, Timestamp } from "firebase/firestore"
+import { useEffect, useRef, useState } from "react"
+import type { Map as LeafletMap } from "leaflet"
+import { MapWrapper } from "@/components/map-wrapper"
+import { db } from "@/lib/firebase"
+import { subscribeSimulationEvent } from "@/lib/simulation-events"
+import type { LocationData, OperationEvent } from "@/lib/types"
+
+export default function SimulationViewerPage() {
+  const [locations, setLocations] = useState<LocationData[]>([])
+  const [activeEvent, setActiveEvent] = useState<OperationEvent | null>(null)
+  const [map, setMap] = useState<LeafletMap | null>(null)
+  const [status, setStatus] = useState("未開始")
+  const [source, setSource] = useState("")
+  const [lastUpdate, setLastUpdate] = useState(0)
+  const [now, setNow] = useState(Date.now())
+  const [error, setError] = useState("")
+  const centeredRef = useRef(false)
+  const sourceRef = useRef("")
+
+useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Step 5-3：本番用のoperation-statusではなく、テスト用だけを監視する。
+useEffect(() => {
+  return subscribeSimulationEvent(setActiveEvent)
+  }, [])
+
+useEffect(() => {
+    // 既存の地図が初期化された後に監視を開始する。
+    if (!map) return
+    return onSnapshot(doc(db, "simulation", "current"), (snapshot) => {
+      if (!snapshot.exists()) {
+        setStatus("データ未作成")
+        setLocations([])
+        return
+      }
+      const data = snapshot.data()
+      const state = typeof data.status === "string" ? data.status : "不明"
+      setStatus(state)
+      setSource(typeof data.sourceCollection === "string" ? data.sourceCollection : "")
+      setError("")
+      const updated = data.updatedAt instanceof Timestamp
+        ? data.updatedAt.toMillis()
+        : Date.parse(String(data.timestamp ?? ""))
+      setLastUpdate(Number.isFinite(updated) ? updated : 0)
+
+      if (state === "stopped") {
+        setLocations([])
+        sourceRef.current = ""
+        centeredRef.current = false
+        return
+      }
+      if (!Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) return
+      const newSource = String(data.sourceCollection ?? "")
+      if (sourceRef.current !== newSource) {
+        sourceRef.current = newSource
+        centeredRef.current = false
+      }
+      const point: LocationData = {
+        id: `${newSource}:${data.pointIndex ?? "?"}`,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date(),
+        ...(typeof data.speed === "number" ? { speed: data.speed } : {}),
+        ...(typeof data.heading === "number" ? { heading: data.heading } : {}),
+        ...(typeof data.accuracy === "number" ? { accuracy: data.accuracy } : {}),
+      }
+      setLocations((old) => {
+        if (!old.length || !old[0].id?.startsWith(`${newSource}:`)) return [point]
+        if (old[old.length - 1].id === point.id) return old
+        return [...old.slice(-5), point]
+      })
+    }, (e) => setError(`GPS受信に失敗しました：${e.message}`))
+  }, [map])
+
+  useEffect(() => {
+    if (!map || !locations.length || centeredRef.current) return
+    const last = locations[locations.length - 1]
+    map.setView([last.latitude, last.longitude], 16)
+    centeredRef.current = true
+  }, [map, locations])
+
+  const stale = status === "playing" && lastUpdate > 0 && now - lastUpdate > 30000
+  const eventTypeLabel = activeEvent?.type === "delay"
+    ? "遅延情報"
+    : activeEvent?.type === "stopped"
+      ? "一時停止中"
+      : "お知らせ"
+  const publishedAt = activeEvent ? new Date(activeEvent.publishedAt) : null
+  const hasPublishedAt = publishedAt !== null && !Number.isNaN(publishedAt.getTime())
+
+  return (
+    <main className="relative h-screen w-screen overflow-hidden">
+      <div className="absolute inset-0">
+        <MapWrapper locations={locations} activeEvent={activeEvent} onMapReady={setMap} />
+      </div>
+    </main>
+  )
+}

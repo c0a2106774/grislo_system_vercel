@@ -138,7 +138,18 @@ export default function Map({ locations, plannedRoute, onMapReady, userLocation,
   }, [plannedRoute])
 
   useEffect(() => {
-    if (!mapRef.current || locations.length === 0 || !leafletRef.current) return
+    if (!mapRef.current || !leafletRef.current) return
+
+    // 位置情報がなくなったとき、以前の車両マーカーも地図から削除する。
+    if (locations.length === 0) {
+      if (vehicleMarkerRef.current) {
+        vehicleMarkerRef.current.unbindTooltip()
+        vehicleMarkerRef.current.remove()
+        vehicleMarkerRef.current = null
+      }
+      lastValidHeadingRef.current = 0
+      return
+    }
 
     const latestLocation = locations[locations.length - 1]
 
