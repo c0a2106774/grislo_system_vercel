@@ -1,7 +1,7 @@
 "use client"
 
 import { doc, onSnapshot, Timestamp } from "firebase/firestore"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { LeafletMouseEvent, Map as LeafletMap } from "leaflet"
 import { MapWrapper } from "@/components/map-wrapper"
 import { parseTimetableStops, useSimulationTimetableMarkers } from "@/components/simulation-timetable-markers"
@@ -9,6 +9,8 @@ import type { TimetableStop } from "@/components/simulation-timetable-markers"
 import { db, getSavedRoute } from "@/lib/firebase"
 import { subscribeSimulationEvent } from "@/lib/simulation-events"
 import type { LocationData, OperationEvent } from "@/lib/types"
+import { estimateRouteEta } from "@/lib/simulation-eta"
+import { useSimulationEtaTooltip } from "@/components/simulation-eta-tooltip"
 
 export default function SimulationViewerPage() {
   const [locations, setLocations] = useState<LocationData[]>([])
@@ -27,6 +29,7 @@ export default function SimulationViewerPage() {
   const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState("")
   const [status, setStatus] = useState("未開始")
+  const [sourceTimestamp, setSourceTimestamp] = useState<string | null>(null)
   const [source, setSource] = useState("")
   const [lastUpdate, setLastUpdate] = useState(0)
   const [now, setNow] = useState(Date.now())
@@ -39,6 +42,11 @@ export default function SimulationViewerPage() {
 
   // 選択済み時刻表ピンの表示（位置情報は変化しない）。
   useSimulationTimetableMarkers(map, timetableStops)
+
+  const etaResult = useMemo(
+    () => estimateRouteEta(plannedRoute, locations, userLocation),
+    [plannedRoute, locations, userLocation],
+  )
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 5000)
@@ -148,6 +156,7 @@ export default function SimulationViewerPage() {
         setSelectedRouteId("")
         setTimetableStops([])
         setLocations([])
+        setSourceTimestamp(null)
         initialGpsSignatureRef.current ??= "（GPS未作成）"
         return
       }
@@ -157,6 +166,7 @@ export default function SimulationViewerPage() {
       setTimetableStops((prev) => JSON.stringify(prev) === JSON.stringify(receivedStops) ? prev : receivedStops)
       const state = typeof data.status === "string" ? data.status : "不明"
       setStatus(state)
+      setSourceTimestamp(typeof data.sourceTimestamp === "string" ? data.sourceTimestamp : null)
       setSource(typeof data.sourceCollection === "string" ? data.sourceCollection : "")
       setError("")
       const updated = data.updatedAt instanceof Timestamp
@@ -234,6 +244,21 @@ export default function SimulationViewerPage() {
       : "お知らせ"
   const publishedAt = activeEvent ? new Date(activeEvent.publishedAt) : null
   const hasPublishedAt = publishedAt !== null && !Number.isNaN(publishedAt.getTime())
+
+  // 青い現在地ピンが設置されている間、常に到着予想を表示する。
+  // GPSがルートに入ると自動更新。ピンのタップは不要。
+  useSimulationEtaTooltip({
+    map,
+    userLocation,
+    etaResult,
+    selectedRouteId,
+    plannedRoutePointCount: plannedRoute.length,
+    routeError,
+    status,
+    stale,
+    gpsPointCount: locations.length,
+    sourceTimestamp,
+  })
 
   return (
     <main className="relative h-screen w-screen overflow-hidden">
@@ -346,7 +371,7 @@ export default function SimulationViewerPage() {
             </button>
           </div>
           <p className="mt-1 text-xs text-slate-600">
-            位置を指定すると利用者の青いマーカーが固定されます。
+            位置を指定すると利用者の青いマーカーが固定されます。青いマーカーの上に、グリスロが近くを通過する予想時間を自動表示します。
           </p>
 
           <section className="mt-4 border-t border-slate-200 pt-4">

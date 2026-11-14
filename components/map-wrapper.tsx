@@ -34,6 +34,8 @@ interface MapProps {
 
   // 遅延・停止・お知らせ情報
   activeEvent?: OperationEvent | null
+  /** クリックした現在地への到着予想（simulation/viewのみ） */
+  onUserLocationClick?: () => void
 }
 
 /**

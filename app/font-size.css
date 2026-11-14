@@ -1,0 +1,27 @@
+/*
+ * グリスロ共通文字サイズ設定
+ * 通常: 16px相当 (ブラウザの基準文字サイズに追従)
+ * 大きい: 通常の1.25倍
+ * Tailwindのremベースのテキストは自動的に拡大します。
+ */
+:root {
+  --grislo-font-scale: 1;
+  font-size: 100%;
+}
+
+:root[data-grislo-font-size="large"] {
+  --grislo-font-scale: 1.25;
+  font-size: 125%;
+}
+
+/* Leafletの既定ツールチップはpx基準のため明示して拡大します。 */
+.leaflet-tooltip {
+  font-size: calc(12px * var(--grislo-font-scale, 1));
+}
+
+/* キーボード操作時に選択ボタンを見失わないためのフォーカス表示。 */
+button[aria-label="文字サイズを普通にする"]:focus-visible,
+button[aria-label="文字サイズを1.25倍にする"]:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}

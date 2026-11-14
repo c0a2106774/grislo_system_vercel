@@ -21,9 +21,11 @@ interface MapProps {
   } | null
 
   activeEvent?: OperationEvent | null
+  /** シミュレーションで現在地ピンを押した際にのみ使用 */
+  onUserLocationClick?: () => void
 }
 
-export default function Map({ locations, plannedRoute, onMapReady, userLocation, activeEvent }: MapProps) {
+export default function Map({ locations, plannedRoute, onMapReady, userLocation, activeEvent, onUserLocationClick }: MapProps) {
   const mapRef = useRef<any | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const vehicleMarkerRef = useRef<any | null>(null)
@@ -442,7 +444,7 @@ export default function Map({ locations, plannedRoute, onMapReady, userLocation,
       document.createElement("div")
 
     label.style.fontSize =
-      "12px"
+      "calc(12px * var(--grislo-font-scale, 1))"
 
     label.style.fontWeight =
       "800"
@@ -486,7 +488,7 @@ export default function Map({ locations, plannedRoute, onMapReady, userLocation,
       document.createElement("div")
 
     message.style.fontSize =
-      "14px"
+      "calc(14px * var(--grislo-font-scale, 1))"
 
     message.style.fontWeight =
       "700"
@@ -510,7 +512,7 @@ export default function Map({ locations, plannedRoute, onMapReady, userLocation,
       document.createElement("div")
 
     time.style.fontSize =
-      "11px"
+      "calc(11px * var(--grislo-font-scale, 1))"
 
     time.style.marginTop =
       "6px"
@@ -648,6 +650,14 @@ export default function Map({ locations, plannedRoute, onMapReady, userLocation,
         .addTo(mapRef.current)
     }
   }, [userLocation])
+
+  // 既存の青い現在地ピンをクリック可能にする（他の画面では無効）。
+  useEffect(() => {
+    const marker = userMarkerRef.current
+    if (!marker || !userLocation || !onUserLocationClick) return
+    marker.on("click", onUserLocationClick)
+    return () => { marker.off("click", onUserLocationClick) }
+  }, [userLocation, onUserLocationClick])
 
   return (
     <div

@@ -1,6 +1,8 @@
+import { FontSizeControl } from "@/components/font-size-control"
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 import "./globals.css"
+import "./font-size.css"
 import "leaflet/dist/leaflet.css"
 
 export const metadata: Metadata = {
@@ -23,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja" className="h-full">
-      <body className="antialiased h-full">{children}</body>
+      <body className="antialiased h-full">{children}<FontSizeControl /></body>
     </html>
   )
 }
