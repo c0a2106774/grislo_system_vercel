@@ -220,8 +220,8 @@ export function PassengerCount() {
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
         <div>
-          <div style={{ fontSize: isMobile ? "10px" : "12px", color: "#4B5563" }}>現在の混雑状況</div>
-          <div style={{ fontSize: isMobile ? "14px" : "18px", fontWeight: "bold", color: "#111827" }}>
+          <div style={{ fontSize: isMobile ? "calc(10px * var(--grislo-font-scale, 1))" : "calc(12px * var(--grislo-font-scale, 1))", color: "#4B5563" }}>現在の混雑状況</div>
+          <div style={{ fontSize: isMobile ? "calc(14px * var(--grislo-font-scale, 1))" : "calc(18px * var(--grislo-font-scale, 1))", fontWeight: "bold", color: "#111827" }}>
             {error ? error : count === null ? "取得中..." : `${count}人`}
           </div>
         </div>

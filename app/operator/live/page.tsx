@@ -710,7 +710,7 @@ async function handlePublish() {
       <div
         style={{
           marginBottom: 5,
-          fontSize: 12,
+          fontSize: "calc(12px * var(--grislo-font-scale, 1))",
           fontWeight: 800,
           color: "#1d4ed8",
         }}
@@ -720,7 +720,7 @@ async function handlePublish() {
 
       <div
         style={{
-          fontSize: 15,
+          fontSize: "calc(15px * var(--grislo-font-scale, 1))",
           fontWeight: 700,
           lineHeight: 1.5,
           color: "#111827",
@@ -733,7 +733,7 @@ async function handlePublish() {
       <div
         style={{
           marginTop: 6,
-          fontSize: 11,
+          fontSize: "calc(11px * var(--grislo-font-scale, 1))",
           color: "#6b7280",
         }}
       >
@@ -746,7 +746,7 @@ async function handlePublish() {
       <div
         style={{
           marginTop: 5,
-          fontSize: 10,
+          fontSize: "calc(10px * var(--grislo-font-scale, 1))",
           color: "#9ca3af",
         }}
       >
@@ -821,7 +821,7 @@ async function handlePublish() {
 
   <span
     style={{
-      fontSize: 22,
+      fontSize: "calc(22px * var(--grislo-font-scale, 1))",
       fontWeight: 800,
       lineHeight: 1,
       whiteSpace: "nowrap",
@@ -894,7 +894,7 @@ async function handlePublish() {
         {/*<h1
           style={{
             margin: 10, //init=8
-            fontSize: 22,
+            fontSize: "calc(22px * var(--grislo-font-scale, 1))",
             fontWeight: 800,
             color: "#111827",
           }}
@@ -917,7 +917,7 @@ async function handlePublish() {
             <div
               style={{
                 marginBottom: 6,
-                fontSize: 12,
+                fontSize: "calc(12px * var(--grislo-font-scale, 1))",
                 fontWeight: 800,
                 color: "#b91c1c",
               }}
@@ -928,7 +928,7 @@ async function handlePublish() {
             <div
               style={{
                 marginBottom: 5,
-                fontSize: 12,
+                fontSize: "calc(12px * var(--grislo-font-scale, 1))",
                 fontWeight: 700,
                 color:
                   activeEvent.type === "stopped"
@@ -943,7 +943,7 @@ async function handlePublish() {
 
             <div
               style={{
-                fontSize: 15,
+                fontSize: "calc(15px * var(--grislo-font-scale, 1))",
                 fontWeight: 700,
                 lineHeight: 1.5,
                 color: "#111827",
@@ -956,7 +956,7 @@ async function handlePublish() {
             <div
               style={{
                 marginTop: 7,
-                fontSize: 11,
+                fontSize: "calc(11px * var(--grislo-font-scale, 1))",
                 color: "#6b7280",
               }}
             >
@@ -979,7 +979,7 @@ async function handlePublish() {
                 color: sending
                   ? "#6b7280"
                   : "#166534",
-                fontSize: 14,
+                fontSize: "calc(14px * var(--grislo-font-scale, 1))",
                 fontWeight: 800,
                 cursor: sending ? "default" : "pointer",
               }}
@@ -1033,7 +1033,7 @@ async function handlePublish() {
                       ? "#fffbeb"
                       : "white",
                     color: "#1f2937",
-                    fontSize: 14,
+                    fontSize: "calc(14px * var(--grislo-font-scale, 1))",
                     fontWeight: selected ? 800 : 600,
                     lineHeight: 1.45,
                     cursor: "pointer",
@@ -1053,7 +1053,7 @@ async function handlePublish() {
             style={{
               display: "block",
               marginBottom: 8,
-              fontSize: 13,
+              fontSize: "calc(13px * var(--grislo-font-scale, 1))",
               fontWeight: 800,
               color: "#374151",
             }}
@@ -1084,7 +1084,7 @@ async function handlePublish() {
               borderRadius: 10,
               border: "1px solid #d1d5db",
               resize: "vertical",
-              fontSize: 16,
+              fontSize: "calc(16px * var(--grislo-font-scale, 1))",
               lineHeight: 1.5,
               fontFamily: "inherit",
             }}
@@ -1100,7 +1100,7 @@ async function handlePublish() {
               borderRadius: 10,
               backgroundColor: "#f3f4f6",
               color: "#374151",
-              fontSize: 13,
+              fontSize: "calc(13px * var(--grislo-font-scale, 1))",
               lineHeight: 1.5,
               overflowWrap: "anywhere",
             }}
@@ -1110,7 +1110,7 @@ async function handlePublish() {
               style={{
                 marginTop: 5,
                 whiteSpace: "pre-wrap",
-                fontSize: 13, //追加
+                fontSize: "calc(13px * var(--grislo-font-scale, 1))", //追加
               }}
             >
               {outgoingMessage}
@@ -1133,7 +1133,7 @@ async function handlePublish() {
                 ? "#9ca3af"
                 : "#f59e0b",
             color: "white",
-            fontSize: 16,
+            fontSize: "calc(16px * var(--grislo-font-scale, 1))",
             fontWeight: 800,
             cursor:
               !outgoingMessage || sending
@@ -1169,7 +1169,7 @@ async function handlePublish() {
               color: feedback.includes("失敗")
                 ? "#b91c1c"
                 : "#166534",
-              fontSize: 13,
+              fontSize: "calc(13px * var(--grislo-font-scale, 1))",
               fontWeight: 700,
               lineHeight: 1.4,
             }}

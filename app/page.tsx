@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { MapWrapper } from "@/components/map-wrapper"
+import { ProductionEtaOverlay } from "@/components/production-eta-overlay"
 import { ZoomControls } from "@/components/zoom-controls"
 import { PassengerCount } from "@/components/passenger-count"
 import { RouteInfo } from "@/components/route-info"
@@ -361,6 +362,15 @@ const hasVehicleLocation =
         />
       </div>
 
+      {/* 本番用：循環ルート運行中のみ選択できる到着予想（設定は端末内に保存） */}
+      <ProductionEtaOverlay
+        map={map}
+        userLocation={userLocation}
+        locations={isOperating ? locations : []}
+        plannedRoute={plannedRoute}
+        eligible={isOperating && currentSchedule?.routeType === "循環ルート" && plannedRoute.length >= 2}
+      />
+
       {/* GPSが取得できない場合の運行情報バナー */}
 {activeEvent &&
   !hasVehicleLocation && (
@@ -417,7 +427,7 @@ const hasVehicleLocation =
         style={{
           marginBottom: 5,
 
-          fontSize: 12,
+          fontSize: "calc(12px * var(--grislo-font-scale, 1))",
           fontWeight: 800,
 
           color:
@@ -442,7 +452,7 @@ const hasVehicleLocation =
       {/* 本文 */}
       <div
         style={{
-          fontSize: 15,
+          fontSize: "calc(15px * var(--grislo-font-scale, 1))",
           fontWeight: 700,
 
           lineHeight: 1.5,
@@ -461,7 +471,7 @@ const hasVehicleLocation =
         style={{
           marginTop: 6,
 
-          fontSize: 11,
+          fontSize: "calc(11px * var(--grislo-font-scale, 1))",
 
           color: "#6b7280",
         }}
@@ -489,7 +499,7 @@ const hasVehicleLocation =
         style={{
           marginTop: 5,
 
-          fontSize: 10,
+          fontSize: "calc(10px * var(--grislo-font-scale, 1))",
 
           color: "#9ca3af",
         }}
@@ -523,14 +533,14 @@ const hasVehicleLocation =
                 '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
             }}
           >
-            <div style={{ fontSize: "25px", fontWeight: "500", lineHeight: "1.6" }}>次回の運行は</div>
-            <div style={{ fontSize: "29px", fontWeight: "700", marginTop: "8px", lineHeight: "1.4" }}>
+            <div style={{ fontSize: "calc(25px * var(--grislo-font-scale, 1))", fontWeight: "500", lineHeight: "1.6" }}>次回の運行は</div>
+            <div style={{ fontSize: "calc(29px * var(--grislo-font-scale, 1))", fontWeight: "700", marginTop: "8px", lineHeight: "1.4" }}>
               {nextOperation.date}({nextOperation.dayOfWeek}){nextOperation.startTime}~{nextOperation.endTime}
             </div>
-            <div style={{ fontSize: "23px", fontWeight: "600", marginTop: "8px", color: "#1f2937" }}>
+            <div style={{ fontSize: "calc(23px * var(--grislo-font-scale, 1))", fontWeight: "600", marginTop: "8px", color: "#1f2937" }}>
               {nextOperation.routeType}
             </div>
-            <div style={{ fontSize: "23px", marginTop: "16px", color: "#000" }}>
+            <div style={{ fontSize: "calc(23px * var(--grislo-font-scale, 1))", marginTop: "16px", color: "#000" }}>
               スタート地点は{nextOperation.startLocation}です
             </div>
           </div>

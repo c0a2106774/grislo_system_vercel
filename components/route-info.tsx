@@ -28,7 +28,7 @@ export function RouteInfo({ schedule, isOperating }: RouteInfoProps) {
         }}
       >
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "20px", fontWeight: "bold", color: "#111827" }}>{displayText}</div>
+          <div style={{ fontSize: "calc(20px * var(--grislo-font-scale, 1))", fontWeight: "bold", color: "#111827" }}>{displayText}</div>
         </div>
       </div>
     </div>
