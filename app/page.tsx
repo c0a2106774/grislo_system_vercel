@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react"
 import { MapWrapper } from "@/components/map-wrapper"
-import { ProductionEtaOverlay } from "@/components/production-eta-overlay"
+import { ProductionEtaFooter } from "@/components/production-eta-footer"
+import "./production-mobile.css"
 import { ZoomControls } from "@/components/zoom-controls"
 import { PassengerCount } from "@/components/passenger-count"
 import { RouteInfo } from "@/components/route-info"
@@ -14,6 +15,8 @@ import type { Map as LeafletMap } from "leaflet"
 export default function Home() {
   const [locations, setLocations] = useState<LocationData[]>([])
   const [map, setMap] = useState<LeafletMap | null>(null)
+  const [footerHeight, setFooterHeight] = useState(0)
+  const footerRef = useRef<HTMLElement | null>(null)
   const [collectionName, setCollectionName] = useState<string>("")
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [plannedRoute, setPlannedRoute] = useState<[number, number][]>([])
@@ -28,6 +31,64 @@ export default function Home() {
     startLocation: string
     routeType: "循環ルート" | "フリー運行"
   } | null>(null)
+
+  // 本番画面でのみ共通文字サイズボタンをレスポンシブに移動する。
+  // 混雑表示の実寸を測るため、文字を「大きい」にしても重ならない。
+  useEffect(() => {
+    document.body.classList.add("grislo-production-home-active")
+    const passenger = document.querySelector<HTMLElement>(".grislo-prod-passenger")
+    const fontControl = document.querySelector<HTMLElement>(
+      '[role="group"][aria-label="文字サイズの切り替え"]',
+    )
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const bottom = passenger?.getBoundingClientRect().bottom ?? 16
+        document.body.style.setProperty("--grislo-prod-passenger-bottom", `${Math.ceil(bottom)}px`)
+        // 文字サイズボタンはCSS変数により上から自動配置済み。
+        const fontBottom = fontControl?.getBoundingClientRect().bottom ?? bottom + 92
+        document.body.style.setProperty("--grislo-prod-font-bottom", `${Math.ceil(fontBottom)}px`)
+      })
+    }
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null
+    if (passenger) observer?.observe(passenger)
+    if (fontControl) observer?.observe(fontControl)
+    window.addEventListener("resize", measure)
+    measure()
+    return () => {
+      cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener("resize", measure)
+      document.body.classList.remove("grislo-production-home-active")
+      document.body.style.removeProperty("--grislo-prod-passenger-bottom")
+      document.body.style.removeProperty("--grislo-prod-font-bottom")
+    }
+  }, [isOperating])
+
+  // ETAのON/OFF、125％表示、端末の画面サイズで変化するフッター高さを測る。
+  useEffect(() => {
+    const footer = footerRef.current
+    if (!footer || !isOperating) {
+      setFooterHeight(0)
+      return
+    }
+    const measure = () => setFooterHeight(Math.ceil(footer.getBoundingClientRect().height))
+    measure()
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null
+    observer?.observe(footer)
+    window.addEventListener("resize", measure)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener("resize", measure)
+    }
+  }, [isOperating])
+
+  useEffect(() => {
+    if (!map) return
+    const frame = requestAnimationFrame(() => map.invalidateSize({ pan: false }))
+    return () => cancelAnimationFrame(frame)
+  }, [map, footerHeight])
 
   // 今日の日付から最新のコレクション名を自動選択
   useEffect(() => {
@@ -349,9 +410,14 @@ const hasVehicleLocation =
   isOperating &&
   locations.length > 0
 
+  const viewportStyle = {
+    height: "100dvh",
+    "--grislo-prod-footer-height": `${isOperating ? footerHeight : 0}px`,
+  } as CSSProperties
+
   return (
-    <main className="w-full h-screen relative overflow-hidden">
-      <div className="absolute inset-0" style={{ zIndex: 1 }}>
+    <main className="w-full h-screen relative overflow-hidden grislo-production-home" style={viewportStyle}>
+      <div className="absolute inset-0" style={{ zIndex: 1, bottom: isOperating ? footerHeight : 0 }}>
         <MapWrapper
           locations={isOperating ? locations : []}
           onMapReady={setMap}
@@ -362,19 +428,11 @@ const hasVehicleLocation =
         />
       </div>
 
-      {/* 本番用：循環ルート運行中のみ選択できる到着予想（設定は端末内に保存） */}
-      <ProductionEtaOverlay
-        map={map}
-        userLocation={userLocation}
-        locations={isOperating ? locations : []}
-        plannedRoute={plannedRoute}
-        eligible={isOperating && currentSchedule?.routeType === "循環ルート" && plannedRoute.length >= 2}
-      />
-
       {/* GPSが取得できない場合の運行情報バナー */}
 {activeEvent &&
   !hasVehicleLocation && (
     <div
+      className="grislo-prod-event-banner"
       style={{
         position: "fixed",
 
@@ -524,6 +582,7 @@ const hasVehicleLocation =
           }}
         >
           <div
+            className="grislo-prod-next-operation"
             style={{
               textAlign: "center",
               padding: "32px",
@@ -549,6 +608,7 @@ const hasVehicleLocation =
 
       {isOperating && (
         <div
+          className="grislo-prod-passenger"
           style={{
             position: "fixed",
             top: "16px",
@@ -574,18 +634,17 @@ const hasVehicleLocation =
       </div>
 
       {isOperating && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 9999,
-            pointerEvents: "auto",
-          }}
-        >
+        <footer ref={footerRef} className="grislo-prod-footer" aria-label="運行情報と到着予想時刻">
+          {/* 既存の運行時間表示を必ず上段に置く。 */}
           <RouteInfo schedule={currentSchedule} isOperating={isOperating} />
-        </div>
+          {/* 循環ルート走行中のみETA ON/OFFと予測を表示する。 */}
+          <ProductionEtaFooter
+            userLocation={userLocation}
+            plannedRoute={plannedRoute}
+            locations={locations}
+            eligible={currentSchedule?.routeType === "循環ルート" && plannedRoute.length >= 2}
+          />
+        </footer>
       )}
     </main>
   )
