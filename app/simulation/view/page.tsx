@@ -1,7 +1,7 @@
 "use client"
 
 import { doc, onSnapshot, Timestamp } from "firebase/firestore"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import type { LeafletMouseEvent, Map as LeafletMap } from "leaflet"
 import { MapWrapper } from "@/components/map-wrapper"
 import { parseTimetableStops, useSimulationTimetableMarkers } from "@/components/simulation-timetable-markers"
@@ -10,7 +10,8 @@ import { db, getSavedRoute } from "@/lib/firebase"
 import { subscribeSimulationEvent } from "@/lib/simulation-events"
 import type { LocationData, OperationEvent } from "@/lib/types"
 import { estimateRouteEta } from "@/lib/simulation-eta"
-import { useSimulationEtaTooltip } from "@/components/simulation-eta-tooltip"
+import { SimulationViewerEtaFooter } from "@/components/simulation-viewer-eta-footer"
+import "./simulation-view-mobile.css"
 
 export default function SimulationViewerPage() {
   const [locations, setLocations] = useState<LocationData[]>([])
@@ -34,11 +35,18 @@ export default function SimulationViewerPage() {
   const [lastUpdate, setLastUpdate] = useState(0)
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState("")
+  const [footerHeight, setFooterHeight] = useState(0)
   const centeredRef = useRef(false)
   const sourceRef = useRef("")
   const previousPositionRef = useRef(-1)
   // リロード直後の既存GPSを無視するため、最初に受け取った配信を記録する。
   const initialGpsSignatureRef = useRef<string | null>(null)
+
+  // この画面のスマホ用CSSだけで、共通の文字サイズボタンを移動させます。
+  useEffect(() => {
+    document.body.classList.add("grislo-simulation-view-active")
+    return () => { document.body.classList.remove("grislo-simulation-view-active") }
+  }, [])
 
   // 選択済み時刻表ピンの表示（位置情報は変化しない）。
   useSimulationTimetableMarkers(map, timetableStops)
@@ -245,25 +253,22 @@ export default function SimulationViewerPage() {
   const publishedAt = activeEvent ? new Date(activeEvent.publishedAt) : null
   const hasPublishedAt = publishedAt !== null && !Number.isNaN(publishedAt.getTime())
 
-  // 青い現在地ピンが設置されている間、常に到着予想を表示する。
-  // GPSがルートに入ると自動更新。ピンのタップは不要。
-  useSimulationEtaTooltip({
-    map,
-    userLocation,
-    etaResult,
-    selectedRouteId,
-    plannedRoutePointCount: plannedRoute.length,
-    routeError,
-    status,
-    stale,
-    gpsPointCount: locations.length,
-    sourceTimestamp,
-  })
+  // フッターの高さが変わるたび、地図の表示領域を調整する。
+  useEffect(() => {
+    if (!map) return
+    const frame = requestAnimationFrame(() => map.invalidateSize({ pan: false }))
+    return () => cancelAnimationFrame(frame)
+  }, [map, footerHeight, selectingLocation])
+
+  const viewportStyle = {
+    height: "100dvh",
+    "--grislo-sim-view-footer-height": `${selectingLocation ? 0 : footerHeight}px`,
+  } as CSSProperties
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden">
+    <main className="relative h-screen w-screen overflow-hidden grislo-simulation-viewer" style={viewportStyle}>
       {/* MapWrapper・GPS受信・位置固定の仕組みは変更していません */}
-      <div className="absolute inset-0" style={{ zIndex: 1 }}>
+      <div className="absolute inset-0" style={{ zIndex: 1, bottom: selectingLocation ? 0 : footerHeight }}>
         <MapWrapper
           locations={locations}
           activeEvent={activeEvent}
@@ -279,7 +284,7 @@ export default function SimulationViewerPage() {
         aria-expanded={operationOpen}
         aria-controls="simulation-operation-panel"
         onClick={() => setOperationOpen((old) => !old)}
-        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 shadow-lg"
+        className="grislo-sim-view-operation-button flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 shadow-lg"
         style={{
           position: "fixed",
           top: 16,
@@ -292,9 +297,10 @@ export default function SimulationViewerPage() {
         }}
       >
         <span aria-hidden="true" className="text-xl leading-none">☰</span>
-        <span>オペレーション</span>
+        <span className="grislo-sim-view-long-title">オペレーション</span>
+        <span className="grislo-sim-view-short-title">操作</span>
         {userLocation && (
-          <span className="rounded-full border border-blue-200 bg-white px-2 py-1 text-xs text-blue-800">
+          <span className="grislo-sim-view-fixed-status rounded-full border border-blue-200 bg-white px-2 py-1 text-xs text-blue-800">
             位置固定中
           </span>
         )}
@@ -302,7 +308,7 @@ export default function SimulationViewerPage() {
 
       {/* 実運行と誤認しないため、パネルを閉じたときもテスト表示を残す */}
       <div
-        className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-bold text-orange-700 shadow"
+        className="grislo-sim-view-test-banner rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-bold text-orange-700 shadow"
         style={{
           position: "fixed",
           top: 16,
@@ -311,7 +317,8 @@ export default function SimulationViewerPage() {
           maxWidth: "calc(100vw - 230px)",
         }}
       >
-        テスト環境・実際の運行ではありません
+        <span className="grislo-sim-view-long-test">テスト環境・実際の運行ではありません</span>
+        <span className="grislo-sim-view-short-test">テスト環境</span>
       </div>
 
       {/* 位置選択中は地図が全面操作できる。キャンセルはこの帯からも可能 */}
@@ -345,7 +352,7 @@ export default function SimulationViewerPage() {
         <aside
           id="simulation-operation-panel"
           aria-label="シミュレーションのオペレーション"
-          className="overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
+          className="grislo-sim-view-operation-panel overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
           style={{
             position: "fixed",
             top: 76,
@@ -371,7 +378,7 @@ export default function SimulationViewerPage() {
             </button>
           </div>
           <p className="mt-1 text-xs text-slate-600">
-            位置を指定すると利用者の青いマーカーが固定されます。青いマーカーの上に、グリスロが近くを通過する予想時間を自動表示します。
+            位置を指定すると利用者の青いマーカーが固定されます。到着予想時刻は画面下部に表示します。グリスロのGPSが更新されると自動計算します。
           </p>
 
           <section className="mt-4 border-t border-slate-200 pt-4">
@@ -488,6 +495,23 @@ export default function SimulationViewerPage() {
             )}
           </section>
         </aside>
+      )}
+      {/* シミュレーターの循環ルート情報とETAを、地図上ではなく下部フッターに表示する。 */}
+      {!selectingLocation && (
+        <SimulationViewerEtaFooter
+          selectedRouteId={selectedRouteId}
+          routeName={routeName}
+          routeError={routeError}
+          plannedRoutePointCount={plannedRoute.length}
+          timetableStopsCount={timetableStops.length}
+          userLocationSet={userLocation !== null}
+          etaResult={etaResult}
+          status={status}
+          stale={stale}
+          gpsPointCount={locations.length}
+          sourceTimestamp={sourceTimestamp}
+          onHeightChange={setFooterHeight}
+        />
       )}
     </main>
   )
